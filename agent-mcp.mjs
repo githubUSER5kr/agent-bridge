@@ -8,22 +8,34 @@ const PREFIX = '你是被呼叫的子 agent，不要再呼叫其他 agent。\n\n
 
 // stdin: true → the prompt goes through stdin, so the command line holds only fixed flags.
 // That makes it safe to run through cmd.exe on Windows, which npm's .cmd shims require.
+// x = extra flags for model / effort, already validated.
 const AGENTS = {
   claude: {
     env: 'CLAUDE_BIN', bin: 'claude', stdin: true,
+    models: "別名 'opus'、'sonnet'、'fable'，或完整名稱如 'claude-opus-5-5'",
+    efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+    model: (m) => ['--model', m], effort: (e) => ['--effort', e],
     // --strict-mcp-config: load no MCP servers, so the callee cannot call other agents
-    args: (edit) => ['-p', '--strict-mcp-config', ...(edit ? ['--permission-mode', 'acceptEdits'] : [])],
+    args: (edit, p, x) => ['-p', '--strict-mcp-config', ...x, ...(edit ? ['--permission-mode', 'acceptEdits'] : [])],
   },
   codex: {
     env: 'CODEX_BIN', bin: 'codex', stdin: true,
-    args: (edit) => ['exec', '--skip-git-repo-check', '-s', edit ? 'workspace-write' : 'read-only', '-'],
+    models: '你的 ChatGPT 方案可用的 Codex 模型名稱',
+    efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+    model: (m) => ['-m', m], effort: (e) => ['-c', `model_reasoning_effort=${e}`],
+    args: (edit, p, x) => ['exec', '--skip-git-repo-check', '-s', edit ? 'workspace-write' : 'read-only', ...x, '-'],
   },
   antigravity: {
     // agy does not read the prompt from stdin; it ships as a native .exe, so no shell is needed.
     env: 'AGY_BIN', bin: 'agy', stdin: false,
-    args: (edit, p) => ['-p', p, ...(edit ? ['--mode', 'accept-edits'] : [])],
+    models: "`agy models` 列出的 ID，例如 'gemini-3.8-flash-high'",
+    efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+    model: (m) => ['--model', m], effort: (e) => ['--effort', e],
+    args: (edit, p, x) => ['-p', p, ...x, ...(edit ? ['--mode', 'accept-edits'] : [])],
   },
 };
+// Model names land on the command line (through cmd.exe on Windows), so allow only plain ID characters.
+const SAFE_MODEL = /^[A-Za-z0-9._:\/\[\]-]{1,100}$/;
 
 const name = process.argv[2];
 const agent = AGENTS[name];
@@ -39,6 +51,8 @@ const tool = {
       prompt: { type: 'string', description: '完整任務說明' },
       cwd: { type: 'string', description: '專案資料夾的絕對路徑（對方在這裡工作）' },
       allow_edits: { type: 'boolean', description: '允許對方改檔；只有使用者要求改檔時才設 true', default: false },
+      model: { type: 'string', description: `選用。指定模型：${agent.models}。不填就用對方的預設模型。` },
+      effort: { type: 'string', enum: agent.efforts, description: '選用。思考強度，越高越仔細但越慢、越耗額度。不填就用對方的預設值。' },
     },
     required: ['prompt', 'cwd'],
   },
@@ -46,10 +60,13 @@ const tool = {
 
 const HINT = `請確認 ${name} 已安裝並登入，或用環境變數 ${agent.env} 指定執行檔完整路徑。`;
 
-function run({ prompt, cwd, allow_edits }) {
+function run({ prompt, cwd, allow_edits, model, effort }) {
   return new Promise((resolve) => {
+    if (model !== undefined && !SAFE_MODEL.test(model)) return resolve({ text: `模型名稱不合法：${model}`, isError: true });
+    if (effort !== undefined && !agent.efforts.includes(effort)) return resolve({ text: `effort 只能是 ${agent.efforts.join(' / ')}`, isError: true });
     const full = PREFIX + prompt;
-    const args = agent.args(!!allow_edits, full);
+    const extra = [...(model ? agent.model(model) : []), ...(effort ? agent.effort(effort) : [])];
+    const args = agent.args(!!allow_edits, full, extra);
     const opts = { cwd, windowsHide: true, stdio: [agent.stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'] };
     let child;
     try {

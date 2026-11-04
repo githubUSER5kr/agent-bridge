@@ -141,7 +141,33 @@ agy mcp add claude node /path/to/agent-bridge/agent-mcp.mjs claude
 agy mcp add codex node /path/to/agent-bridge/agent-mcp.mjs codex
 ```
 
-Finally, add a short usage note to each agent's global instructions (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`) so it knows when to delegate. See the block that `install.mjs` writes for the exact text.
+**Usage note (optional, recommended)**
+
+The tools work without it: each tool already describes itself, and naming the tool directly ("use `ask_codex` to…") always works. The note helps an agent recognise casual requests such as *"get a second opinion from Codex"*, and reminds it to pass `cwd` and keep `allow_edits` off unless asked.
+
+Append this to each agent's global instructions file, listing the **other two** agents:
+
+| Agent | File | Tools to list |
+|---|---|---|
+| Claude Code | `~/.claude/CLAUDE.md` | `ask_codex` / `ask_antigravity` |
+| Codex | `~/.codex/AGENTS.md` | `ask_claude` / `ask_antigravity` |
+| Antigravity | `~/.gemini/GEMINI.md` | `ask_claude` / `ask_codex` |
+
+```markdown
+## Calling other AI agents
+
+When the user asks to have Codex / Antigravity do something, or wants a second opinion,
+use the MCP tools `ask_codex` / `ask_antigravity` (they run on the user's own subscriptions):
+
+- `prompt`: the full task. The other agent cannot see this conversation, so state the goal,
+  file paths, and what to report back.
+- `cwd`: absolute path of the project folder.
+- `allow_edits`: false by default; set true only when the user asked for file changes.
+- `model` / `effort`: fill in only when the user specifies a model or effort level.
+
+It may take a few minutes. Summarise the result for the user and judge it yourself
+rather than accepting it as-is.
+```
 
 </details>
 
@@ -152,6 +178,7 @@ Just ask in plain language:
 - *"Ask Codex to review `login.js` for bugs."*
 - *"Have Claude propose an alternative implementation and compare it with yours."*
 - *"Ask Antigravity to fix this function. It may edit files."*
+- *"Ask Claude with opus at max effort to design the database schema."*
 
 Before each call, the app shows an approval prompt. Check `allow_edits` in that prompt. If it is `true` and you did not ask for edits, decline.
 
@@ -167,6 +194,16 @@ Every tool (`ask_claude`, `ask_codex`, `ask_antigravity`) takes the same paramet
 | `prompt` | string | yes | The full task. The callee cannot see the caller's conversation, so include goals, file paths, and what to report back. |
 | `cwd` | string | yes | Absolute path of the project folder the callee works in. |
 | `allow_edits` | boolean | no (default `false`) | Let the callee modify files. |
+| `model` | string | no | Model to use. Omit to use the callee's default. See below. |
+| `effort` | string | no | Reasoning effort. Higher is more thorough but slower and uses more quota. See below. |
+
+| Tool | `model` examples | `effort` values |
+|---|---|---|
+| `ask_claude` | `opus`, `sonnet`, `fable`, or a full name such as `claude-opus-5-5` | `low` `medium` `high` `xhigh` `max` |
+| `ask_codex` | any Codex model available on your ChatGPT plan | `minimal` `low` `medium` `high` `xhigh` |
+| `ask_antigravity` | an ID from `agy models`, e.g. `gemini-3.8-flash-high` | `low` `medium` `high` `xhigh` `max` |
+
+Model names may contain only letters, digits, and `. _ : / [ ] -`. Anything else is rejected before the callee starts.
 
 The tool returns the callee's final answer as text. If the callee fails, the result is marked as an error and includes the last part of its output.
 

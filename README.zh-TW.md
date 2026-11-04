@@ -143,7 +143,30 @@ agy mcp add claude node /path/to/agent-bridge/agent-mcp.mjs claude
 agy mcp add codex node /path/to/agent-bridge/agent-mcp.mjs codex
 ```
 
-最後在各 agent 的全域說明檔（`~/.claude/CLAUDE.md`、`~/.codex/AGENTS.md`、`~/.gemini/GEMINI.md`）加上使用說明，讓它知道什麼時候該交出任務。內容可參考 `install.mjs` 寫入的那段。
+**使用說明（選用，建議加）**
+
+不加也能用：每個工具本身就帶有說明，直接點名工具（「用 `ask_codex` 叫 Codex…」）一定有效。加了這段，AI 比較能聽懂「叫 Codex 給個第二意見」這種隨口的說法，也比較記得要帶 `cwd`、沒要求改檔時不開 `allow_edits`。
+
+把下面這段加到各 agent 的全域說明檔最後面，工具名換成**另外兩個**：
+
+| Agent | 檔案 | 要寫的工具 |
+|---|---|---|
+| Claude Code | `~/.claude/CLAUDE.md` | `ask_codex` / `ask_antigravity` |
+| Codex | `~/.codex/AGENTS.md` | `ask_claude` / `ask_antigravity` |
+| Antigravity | `~/.gemini/GEMINI.md` | `ask_claude` / `ask_codex` |
+
+```markdown
+## 呼叫其他 AI agent
+
+使用者說「叫 Codex / Antigravity 做 X」或需要第二意見時，用 MCP 工具 `ask_codex` / `ask_antigravity`（用使用者的訂閱帳號）：
+
+- `prompt`：完整任務。對方看不到這段對話，要寫清楚目標、檔案路徑、要回報什麼。
+- `cwd`：專案資料夾的絕對路徑。
+- `allow_edits`：預設 false；只有使用者要求改檔才設 true。
+- `model` / `effort`：使用者指定模型或思考強度時才填，否則留空。
+
+可能要跑幾分鐘，等它結束。把結果摘要給使用者，自己判斷對錯，不要照單全收。
+```
 
 </details>
 
@@ -154,6 +177,7 @@ agy mcp add codex node /path/to/agent-bridge/agent-mcp.mjs codex
 - 「叫 Codex 幫我檢查 `login.js` 有沒有 bug」
 - 「叫 Claude 想另一種寫法，跟你的比較看看」
 - 「叫 Antigravity 修好這個函式，可以直接改檔」
+- 「叫 Claude 用 opus、effort 開到 max，幫我設計資料庫結構」
 
 每次呼叫前，APP 會跳出確認視窗。請看一下視窗裡的 `allow_edits`：如果是 `true`，但你沒有要求改檔，就按拒絕。
 
@@ -169,6 +193,16 @@ agy mcp add codex node /path/to/agent-bridge/agent-mcp.mjs codex
 | `prompt` | string | 是 | 完整任務。對方看不到呼叫方的對話，要寫清楚目標、檔案路徑、要回報什麼。 |
 | `cwd` | string | 是 | 對方工作的專案資料夾完整路徑。 |
 | `allow_edits` | boolean | 否（預設 `false`） | 是否允許對方改檔。 |
+| `model` | string | 否 | 指定模型。不填就用對方的預設模型，可用的值見下表。 |
+| `effort` | string | 否 | 思考強度。越高越仔細，但越慢、越耗額度，可用的值見下表。 |
+
+| 工具 | `model` 範例 | `effort` 可用值 |
+|---|---|---|
+| `ask_claude` | `opus`、`sonnet`、`fable`，或完整名稱如 `claude-opus-5-5` | `low` `medium` `high` `xhigh` `max` |
+| `ask_codex` | 你的 ChatGPT 方案可用的 Codex 模型 | `minimal` `low` `medium` `high` `xhigh` |
+| `ask_antigravity` | `agy models` 列出的 ID，例如 `gemini-3.8-flash-high` | `low` `medium` `high` `xhigh` `max` |
+
+模型名稱只能包含英數字和 `. _ : / [ ] -`，其他字元會在啟動對方之前就被拒絕。
 
 工具會回傳對方的最終回答。如果對方執行失敗，結果會標記為錯誤，並附上對方最後的輸出。
 

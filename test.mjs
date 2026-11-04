@@ -30,6 +30,11 @@ for (const agent of ['claude', 'codex', 'antigravity']) {
   const list = await s.call('tools/list', {});
   assert.equal(list.result.tools[0].name, `ask_${agent}`);
   assert.equal((await s.call('nope', {})).error.code, -32601);
+  // Unsafe model names and unknown effort levels are rejected before anything runs.
+  for (const bad of [{ model: 'x & calc' }, { model: 'a"b' }, { effort: 'turbo' }]) {
+    const r = await s.call('tools/call', { name: `ask_${agent}`, arguments: { prompt: 'hi', cwd: process.cwd(), ...bad } });
+    assert.equal(r.result.isError, true, JSON.stringify(bad));
+  }
   if (live) {
     const r = await s.call('tools/call', { name: `ask_${agent}`, arguments: { prompt: 'Reply with exactly: OK', cwd: process.cwd() } });
     assert.equal(r.result.isError, false, r.result.content[0].text);
