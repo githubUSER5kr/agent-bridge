@@ -199,7 +199,7 @@ agy mcp add codex node /path/to/agent-bridge/agent-mcp.mjs codex
 | 工具 | `model` 範例 | `effort` 可用值 |
 |---|---|---|
 | `ask_claude` | `opus`、`sonnet`、`fable`，或完整名稱如 `claude-opus-5-5` | `low` `medium` `high` `xhigh` `max` |
-| `ask_codex` | 你的 ChatGPT 方案可用的 Codex 模型 | `minimal` `low` `medium` `high` `xhigh` |
+| `ask_codex` | 你的 ChatGPT 方案可用的模型 ID，例如 `gpt-6.1-sol` | `low` `medium` `high` `xhigh` `max` `ultra`（`ultra` 僅部分模型支援） |
 | `ask_antigravity` | `agy models` 列出的 ID，例如 `gemini-3.8-flash-high` | `low` `medium` `high` `xhigh` `max` |
 
 模型名稱只能包含英數字和 `. _ : / [ ] -`，其他字元會在啟動對方之前就被拒絕。

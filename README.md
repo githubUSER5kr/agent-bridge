@@ -200,7 +200,7 @@ Every tool (`ask_claude`, `ask_codex`, `ask_antigravity`) takes the same paramet
 | Tool | `model` examples | `effort` values |
 |---|---|---|
 | `ask_claude` | `opus`, `sonnet`, `fable`, or a full name such as `claude-opus-5-5` | `low` `medium` `high` `xhigh` `max` |
-| `ask_codex` | any Codex model available on your ChatGPT plan | `minimal` `low` `medium` `high` `xhigh` |
+| `ask_codex` | a model ID available on your ChatGPT plan, e.g. `gpt-6.1-sol` | `low` `medium` `high` `xhigh` `max` `ultra` (`ultra` on some models only) |
 | `ask_antigravity` | an ID from `agy models`, e.g. `gemini-3.8-flash-high` | `low` `medium` `high` `xhigh` `max` |
 
 Model names may contain only letters, digits, and `. _ : / [ ] -`. Anything else is rejected before the callee starts.

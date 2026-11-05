@@ -21,7 +21,7 @@ const AGENTS = {
   codex: {
     env: 'CODEX_BIN', bin: 'codex', stdin: true,
     models: '你的 ChatGPT 方案可用的 Codex 模型名稱',
-    efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+    efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], // ultra: only some models
     model: (m) => ['-m', m], effort: (e) => ['-c', `model_reasoning_effort=${e}`],
     args: (edit, p, x) => ['exec', '--skip-git-repo-check', '-s', edit ? 'workspace-write' : 'read-only', ...x, '-'],
   },
