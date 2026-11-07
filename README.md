@@ -28,7 +28,7 @@ Claude Code ◀── report ───── and returns its findings
 
 - **No API keys.** Uses each vendor's official CLI with the account you are already signed in to (Claude Pro/Max, ChatGPT Plus/Pro, Google).
 - **Works in apps and CLIs.** Claude Code (CLI and desktop), the Codex app and CLI, and Antigravity.
-- **Zero dependencies.** One ~170-line file. Node.js is all you need.
+- **Zero dependencies.** One ~190-line file. Node.js is all you need.
 - **Read-only by default.** The callee can only edit files when the caller sets `allow_edits: true`.
 - **Follow-ups remember.** Every answer ends with a `session_id`. Pass it back to keep talking to the same callee conversation; leave it out for a fresh start.
 - **Loop-safe.** Callees are told not to call other agents, and Claude callees load no MCP servers at all.
@@ -202,9 +202,11 @@ When you follow up in the same chat, for example *"Ask Codex why it flagged line
 |---|---|---|
 | Claude | Claude Code's own session (`--session-id`, then `--resume`) | Yes |
 | Codex | Codex's own session (`codex exec … resume <id>`) | Yes |
-| Antigravity | The bridge replays the earlier tasks and answers in the next prompt (most recent ~16,000 characters) | No. Start a new conversation instead. |
+| Antigravity | Antigravity's own conversation (`--output-format json` reports `conversation_id`, then `--conversation <id>`) | Yes |
 
-Keep the same `cwd` when following up. Claude and Codex store sessions per project folder.
+Keep the same `cwd` when following up. The CLIs store conversations per project folder.
+
+If a callee cannot find the old conversation and answers in a new one, the reply says so and carries the new `session_id`.
 
 ## Tool Reference
 
@@ -225,7 +227,7 @@ Every tool (`ask_claude`, `ask_codex`, `ask_antigravity`) takes the same paramet
 | `ask_codex` | a model ID available on your ChatGPT plan, e.g. `gpt-6.1-sol` | `low` `medium` `high` `xhigh` `max` `ultra` (`ultra` on some models only) |
 | `ask_antigravity` | an ID from `agy models`, e.g. `gemini-3.8-flash-high` | `low` `medium` `high` `xhigh` `max` |
 
-Model names may contain only letters, digits, and `. _ : / [ ] -`, and session IDs only letters, digits, and `. _ : -`. Anything else is rejected before the callee starts.
+Model names may contain only letters, digits, and `. _ : / [ ] -`. Session IDs may contain only letters, digits, and `. _ : -`, and may not start with `-`. Anything else is rejected before the callee starts.
 
 The tool returns the callee's final answer as text, followed by its `session_id`. If the callee fails, the result is marked as an error and includes the last part of its output.
 
@@ -262,6 +264,13 @@ Install the agent, sign in once, and re-run `node install.mjs`. If the CLI is in
 <summary>A call fails with "請確認 … 已安裝並登入" (check that it is installed and signed in)</summary>
 
 The callee's login has expired. Run `claude`, `codex`, or `agy` in a terminal and sign in again.
+
+</details>
+
+<details>
+<summary>Antigravity fails with an unknown <code>--output-format</code> flag</summary>
+
+Your `agy` is older than the JSON output the bridge uses. Update Antigravity to the latest version.
 
 </details>
 
@@ -308,8 +317,7 @@ Then delete the `agent-bridge` block from the three instruction files.
 
 ## Limitations
 
-- Antigravity follow-ups are remembered by the bridge, not by Antigravity itself. They hold the earlier questions and answers but not the files Antigravity read, and they are lost when the calling app restarts.
-- If a Codex answer does not report its session ID (for example in an older Codex version), the bridge falls back to the same replay method as Antigravity.
+- If a callee does not report a session ID (for example an older Codex or Antigravity), the bridge remembers the earlier questions and answers itself and replays them in the next prompt (most recent ~16,000 characters). This keeps the gist but not the files the callee read, and it is lost when the calling app restarts.
 - There is no live progress while the callee works. Results arrive when it finishes.
 - Each call uses the callee's subscription quota.
 - Antigravity's MCP tool timeout has not been verified. Very long tasks may be cut off.

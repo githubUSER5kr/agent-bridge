@@ -54,11 +54,11 @@ for (const agent of ['claude', 'codex', 'antigravity']) {
   console.log(`${agent}: ok`);
 }
 
-// Bad or unknown session IDs are rejected before anything runs.
+// Malformed session IDs are rejected before anything runs.
 {
   const s = session('antigravity', { AGY_BIN: 'no-such-agent-binary' });
   await s.call('initialize', {});
-  for (const session_id of ['a b', 'x&y', 'never-issued']) {
+  for (const session_id of ['a b', 'x&y', '--mode', '-c', '"quoted"']) {
     const r = await s.call('tools/call', { name: 'ask_antigravity', arguments: { prompt: 'hi', cwd: process.cwd(), session_id } });
     assert.equal(r.result.isError, true, session_id);
     assert.doesNotMatch(r.result.content[0].text, /AGY_BIN/, 'must fail before launching'); // not a launch error
@@ -68,6 +68,8 @@ for (const agent of ['claude', 'codex', 'antigravity']) {
 }
 
 // Conversation continuity, checked against a fake agent that echoes its arguments and stdin.
+// It prints a Codex-style "session id:" header, and with --output-format json it answers with an
+// Antigravity-style envelope (FAKE_PLAIN=1 imitates an older agy without JSON output).
 // (Needs a shebang script, so it runs on macOS / Linux only.)
 if (process.platform !== 'win32') {
   const dir = mkdtempSync(join(tmpdir(), 'agent-bridge-'));
@@ -75,8 +77,13 @@ if (process.platform !== 'win32') {
   writeFileSync(fake, `#!${process.execPath}
 let input = '';
 process.stdin.on('data', (d) => (input += d)).on('end', () => {
+  const argv = process.argv.slice(2);
   console.error('session id: 0199aaaa-bbbb-7ccc-8ddd-eeeeffff0000');
-  console.log(JSON.stringify({ argv: process.argv.slice(2), stdin: input }));
+  const echo = JSON.stringify({ argv, stdin: input });
+  if (!argv.includes('--output-format') || process.env.FAKE_PLAIN) return console.log(echo);
+  const asked = argv[argv.indexOf('--conversation') + 1];
+  const id = !argv.includes('--conversation') ? 'conv-1111' : asked === 'conv-gone' ? 'conv-2222' : asked;
+  console.log(JSON.stringify({ conversation_id: id, status: 'SUCCESS', response: echo, num_turns: 1 }, null, 2));
 });
 `);
   chmodSync(fake, 0o755);
@@ -86,7 +93,8 @@ process.stdin.on('data', (d) => (input += d)).on('end', () => {
     const text = r.result.content[0].text;
     const id = text.match(/\[session_id: ([^\]]+)\]/)?.[1];
     assert.ok(id, 'answer must end with a session_id');
-    return { id, ...JSON.parse(text.slice(0, text.lastIndexOf('\n\n[session_id'))) };
+    const lost = text.includes('找不到原本的對話');
+    return { id, lost, ...JSON.parse(text.slice(0, text.indexOf('\n\n'))) };
   };
 
   // Claude: we choose the ID, then resume it natively.
@@ -113,22 +121,42 @@ process.stdin.on('data', (d) => (input += d)).on('end', () => {
   s.close();
   console.log('codex session: ok');
 
-  // Antigravity: no native resume, so the bridge replays earlier turns in the prompt.
+  // Antigravity: the ID comes from the JSON envelope, then `--conversation <id>`.
   s = session('antigravity', { AGY_BIN: fake });
   await s.call('initialize', {});
+  a = await ask(s, 'antigravity', { prompt: 'first', effort: 'low' });
+  assert.equal(a.id, 'conv-1111');
+  assert.deepEqual(a.argv.slice(2), ['--output-format', 'json', '--effort', 'low']);
+  b = await ask(s, 'antigravity', { prompt: 'second', session_id: a.id });
+  assert.equal(b.id, a.id);
+  assert.equal(b.lost, false);
+  assert.deepEqual(b.argv.slice(2), ['--output-format', 'json', '--conversation', a.id]);
+  assert.doesNotMatch(b.argv[1], /first/);          // native resume: no replayed history
+  // If agy cannot find the conversation and starts a new one, the caller is told and gets the new ID.
+  const c = await ask(s, 'antigravity', { prompt: 'third', session_id: 'conv-gone' });
+  assert.equal(c.id, 'conv-2222');
+  assert.equal(c.lost, true);
+  s.close();
+  console.log('antigravity session: ok');
+
+  // Fallback: a CLI that reports no ID (older agy) is continued by replaying earlier turns.
+  s = session('antigravity', { AGY_BIN: fake, FAKE_PLAIN: '1' });
+  await s.call('initialize', {});
   a = await ask(s, 'antigravity', { prompt: 'remember BANANA' });
+  assert.match(a.id, /^[0-9a-f-]{36}$/);
   b = await ask(s, 'antigravity', { prompt: 'what word?', session_id: a.id });
   assert.equal(b.id, a.id);
   const sent = b.argv[1];
   assert.match(sent, /remember BANANA/);            // the earlier task…
   assert.match(sent, /"argv"/);                     // …and the earlier answer are replayed
   assert.ok(sent.indexOf('remember BANANA') < sent.indexOf('what word?'));
-  const c = await ask(s, 'antigravity', { prompt: 'fresh start' });
-  assert.notEqual(c.id, a.id);
-  assert.doesNotMatch(c.argv[1], /BANANA/);         // no session_id → a clean conversation
+  assert.ok(!b.argv.includes('--conversation'));
+  const d = await ask(s, 'antigravity', { prompt: 'fresh start' });
+  assert.notEqual(d.id, a.id);
+  assert.doesNotMatch(d.argv[1], /BANANA/);         // no session_id → a clean conversation
   s.close();
   rmSync(dir, { recursive: true, force: true });
-  console.log('antigravity session: ok');
+  console.log('replay fallback: ok');
 }
 
 // A missing executable must come back as a tool error, and the server must keep running.

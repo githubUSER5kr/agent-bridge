@@ -11,6 +11,7 @@ const PREFIX = '你是被呼叫的子 agent，不要再呼叫其他 agent。\n\n
 // That makes it safe to run through cmd.exe on Windows, which npm's .cmd shims require.
 // x = extra flags for model / effort, already validated.
 // s = native session for follow-ups: { id, resume } (see "Conversation continuity" below).
+// parse(out, err) → { answer, id }: pulls the answer and the CLI's own session ID from its output.
 const AGENTS = {
   claude: {
     env: 'CLAUDE_BIN', bin: 'claude', stdin: true,
@@ -29,7 +30,10 @@ const AGENTS = {
     efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], // ultra: only some models
     model: (m) => ['-m', m], effort: (e) => ['-c', `model_reasoning_effort=${e}`],
     // codex exec prints "session id: <uuid>" to stderr; follow-ups use `codex exec … resume <id> -`.
-    findId: (err) => err.match(/\b(?:session|thread)[ _]id:\s*([0-9A-Za-z-]{8,})/i)?.[1],
+    parse: (out, err) => ({
+      answer: out.trim() || err.trim(),
+      id: err.match(/\b(?:session|thread)[ _]id:\s*([0-9A-Za-z-]{8,})/i)?.[1],
+    }),
     args: (edit, p, x, s) => ['exec', '--skip-git-repo-check', '-s', edit ? 'workspace-write' : 'read-only', ...x,
       ...(s?.resume ? ['resume', s.id] : []), '-'],
   },
@@ -39,13 +43,29 @@ const AGENTS = {
     models: "`agy models` 列出的 ID，例如 'gemini-3.8-flash-high'",
     efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
     model: (m) => ['--model', m], effort: (e) => ['--effort', e],
-    args: (edit, p, x) => ['-p', p, ...x, ...(edit ? ['--mode', 'accept-edits'] : [])],
+    // --output-format json prints one envelope: { conversation_id, status, response, finished_reason?, … }.
+    // Follow-ups pass that ID back with --conversation.
+    parse: (out, err) => {
+      const r = jsonEnvelope(out);
+      if (typeof r?.response !== 'string') return { answer: out.trim() || err.trim() }; // not JSON: no native ID
+      const cut = r.finished_reason ? `\n\n（回答可能不完整：${r.finished_reason}）` : '';
+      return { answer: r.response.trim() + cut, id: r.conversation_id };
+    },
+    args: (edit, p, x, s) => ['-p', p, '--output-format', 'json', ...(s?.resume ? ['--conversation', s.id] : []), ...x,
+      ...(edit ? ['--mode', 'accept-edits'] : [])],
   },
 };
 // Model names and session IDs land on the command line (through cmd.exe on Windows),
 // so allow only plain ID characters.
 const SAFE_MODEL = /^[A-Za-z0-9._:\/\[\]-]{1,100}$/;
-const SAFE_ID = /^[A-Za-z0-9._:-]{1,100}$/;
+const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/; // never starts with '-', so it cannot pose as a flag
+
+function jsonEnvelope(out) {
+  for (const text of [out, out.trim().split('\n').pop()]) {
+    try { return JSON.parse(text); } catch {}
+  }
+  return null;
+}
 
 const name = process.argv[2];
 const agent = AGENTS[name];
@@ -74,8 +94,8 @@ const HINT = `請確認 ${name} 已安裝並登入，或用環境變數 ${agent.
 // Conversation continuity. Every successful answer ends with a session_id; passing it back continues
 // the same conversation. Three ways, best first:
 //   ownId   (Claude): we choose the ID up front and the CLI resumes it natively.
-//   findId  (Codex):  the CLI reports its own ID, which we read and resume natively.
-//   memory  (Antigravity, or when no ID was reported): this process remembers the earlier
+//   parse   (Codex, Antigravity): the CLI reports its own ID, which we read and resume natively.
+//   memory  (fallback when an older CLI reports no ID): this process remembers the earlier
 //            tasks and answers and replays them in the next prompt. Lost when the caller restarts.
 const memory = new Map(); // session_id -> [{ prompt, answer }]
 const MEMORY_SESSIONS = 100;
@@ -108,10 +128,6 @@ function run({ prompt, cwd, allow_edits, model, effort, session_id }) {
     if (session_id !== undefined && !SAFE_ID.test(session_id)) return resolve({ text: `session_id 不合法：${session_id}`, isError: true });
 
     const replay = session_id !== undefined && memory.has(session_id);
-    const native = agent.ownId || agent.findId;
-    if (session_id !== undefined && !replay && !native) {
-      return resolve({ text: `找不到 session_id ${session_id}（呼叫方的 APP 重開過就會遺失）。請不帶 session_id，把需要的背景寫進 prompt 重新開始。`, isError: true });
-    }
     // s: the native session handed to the CLI, if any.
     const s = replay ? null
       : session_id !== undefined ? { id: session_id, resume: true }
@@ -122,10 +138,12 @@ function run({ prompt, cwd, allow_edits, model, effort, session_id }) {
     const extra = [...(model ? agent.model(model) : []), ...(effort ? agent.effort(effort) : [])];
     const args = agent.args(!!allow_edits, full, extra, s);
     const done = (out, err) => {
-      const answer = out.trim() || err.trim();
-      let id = s?.id ?? (replay ? session_id : agent.findId?.(err));
+      const { answer, id: reported } = agent.parse?.(out, err) ?? { answer: out.trim() || err.trim() };
+      let id = replay ? session_id : reported ?? s?.id;
       if (!id || replay) { id ??= randomUUID(); remember(id, { prompt, answer }); }
-      return { text: answer + footer(id), isError: false };
+      // A CLI that cannot find the old conversation may quietly start a new one; say so.
+      const lost = s?.resume && id !== s.id ? '\n\n（注意：找不到原本的對話，這次是在新對話裡回答的。之後請改用下面的 session_id。）' : '';
+      return { text: answer + lost + footer(id), isError: false };
     };
     const opts = { cwd, windowsHide: true, stdio: [agent.stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'] };
     let child;

@@ -28,7 +28,7 @@ Claude Code ◀── 報告 ────── 交回檢查結果
 
 - **不需要 API key**：使用各家官方命令列程式，用你已經登入的帳號（Claude Pro/Max、ChatGPT Plus/Pro、Google）。
 - **APP 和終端機都能用**：Claude Code（終端機與桌面版）、Codex APP 與 CLI、Antigravity。
-- **零相依套件**：只有一個約 170 行的檔案，只需要 Node.js。
+- **零相依套件**：只有一個約 190 行的檔案，只需要 Node.js。
 - **預設唯讀**：呼叫方設定 `allow_edits: true` 時，對方才能改檔。
 - **可以追問**：每次回答最後都會附上 `session_id`。帶回去就能接著同一段對話問；不帶就是全新開始。
 - **防止無限呼叫**：被呼叫的一方會被要求不要再呼叫別人；被呼叫的 Claude 完全不載入任何 MCP。
@@ -200,9 +200,11 @@ agy mcp add codex node /path/to/agent-bridge/agent-mcp.mjs codex
 |---|---|---|
 | Claude | Claude Code 自己的 session（`--session-id`，之後 `--resume`） | 在 |
 | Codex | Codex 自己的 session（`codex exec … resume <id>`） | 在 |
-| Antigravity | 由 bridge 把先前的任務和回答附進下一次的 prompt（保留最近約 16,000 字元） | 不在，請重新開始 |
+| Antigravity | Antigravity 自己的對話（`--output-format json` 回報 `conversation_id`，之後 `--conversation <id>`） | 在 |
 
-追問時 `cwd` 要和第一次相同，Claude 和 Codex 是依專案資料夾存放 session 的。
+追問時 `cwd` 要和第一次相同，三家都是依專案資料夾存放對話的。
+
+如果對方找不到原本的對話、改在新對話裡回答，回覆裡會註明，並附上新的 `session_id`。
 
 ## 工具參數
 
@@ -223,7 +225,7 @@ agy mcp add codex node /path/to/agent-bridge/agent-mcp.mjs codex
 | `ask_codex` | 你的 ChatGPT 方案可用的模型 ID，例如 `gpt-6.1-sol` | `low` `medium` `high` `xhigh` `max` `ultra`（`ultra` 僅部分模型支援） |
 | `ask_antigravity` | `agy models` 列出的 ID，例如 `gemini-3.8-flash-high` | `low` `medium` `high` `xhigh` `max` |
 
-模型名稱只能包含英數字和 `. _ : / [ ] -`，session_id 只能包含英數字和 `. _ : -`，其他字元會在啟動對方之前就被拒絕。
+模型名稱只能包含英數字和 `. _ : / [ ] -`，session_id 只能包含英數字和 `. _ : -` 且不能以 `-` 開頭，其他字元會在啟動對方之前就被拒絕。
 
 工具會回傳對方的最終回答，最後附上 `session_id`。如果對方執行失敗，結果會標記為錯誤，並附上對方最後的輸出。
 
@@ -260,6 +262,13 @@ agy mcp add codex node /path/to/agent-bridge/agent-mcp.mjs codex
 <summary>呼叫時出現「請確認 … 已安裝並登入」</summary>
 
 被呼叫那一方的登入過期了。在終端機執行 `claude`、`codex` 或 `agy`，重新登入即可。
+
+</details>
+
+<details>
+<summary>Antigravity 出現不認得 <code>--output-format</code> 的錯誤</summary>
+
+你的 `agy` 版本比 bridge 用到的 JSON 輸出功能還舊，請把 Antigravity 更新到最新版。
 
 </details>
 
@@ -308,8 +317,7 @@ agy mcp remove claude && agy mcp remove codex
 
 ## 限制
 
-- Antigravity 的追問是由 bridge 記住的，不是 Antigravity 本身。它記得先前的問答，但不記得當時讀過的檔案，而且呼叫方的 APP 重開後就會遺失。
-- 如果 Codex 沒有回報 session ID（例如較舊的版本），bridge 會改用和 Antigravity 相同的方式記住對話。
+- 如果對方沒有回報 session ID（例如較舊版的 Codex 或 Antigravity），bridge 會自己記住先前的問答，下次附進 prompt（保留最近約 16,000 字元）。這樣記得大意，但不記得對方讀過的檔案，而且呼叫方的 APP 重開後就會遺失。
 - 對方工作時看不到即時進度，做完才會有結果。
 - 每次呼叫都會用到被呼叫那一家的訂閱額度。
 - Antigravity 的 MCP 逾時上限未確認，任務很久時可能被中斷。
