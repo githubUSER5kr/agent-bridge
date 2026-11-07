@@ -28,8 +28,9 @@ Claude Code ◀── report ───── and returns its findings
 
 - **No API keys.** Uses each vendor's official CLI with the account you are already signed in to (Claude Pro/Max, ChatGPT Plus/Pro, Google).
 - **Works in apps and CLIs.** Claude Code (CLI and desktop), the Codex app and CLI, and Antigravity.
-- **Zero dependencies.** One ~100-line file. Node.js is all you need.
+- **Zero dependencies.** One ~170-line file. Node.js is all you need.
 - **Read-only by default.** The callee can only edit files when the caller sets `allow_edits: true`.
+- **Follow-ups remember.** Every answer ends with a `session_id`. Pass it back to keep talking to the same callee conversation; leave it out for a fresh start.
 - **Loop-safe.** Callees are told not to call other agents, and Claude callees load no MCP servers at all.
 - **One-command setup.** `node install.mjs` detects what you have installed and configures everything. Safe to re-run.
 
@@ -43,7 +44,7 @@ Each vendor ships a non-interactive mode that reuses your stored login:
 | Codex | `codex exec` | `ask_codex` |
 | Antigravity | `agy -p` | `ask_antigravity` |
 
-`agent-mcp.mjs` wraps one of these commands as an MCP tool. Each agent registers the *other* agents, so any of them can delegate to the rest. The two sides share only the task text and the project folder. They do not share conversation history.
+`agent-mcp.mjs` wraps one of these commands as an MCP tool. Each agent registers the *other* agents, so any of them can delegate to the rest. The two sides share only the task text and the project folder. The callee never sees the caller's conversation, but it can remember its own earlier turns with the caller (see [Follow-up Questions](#follow-up-questions)).
 
 ## Requirements
 
@@ -164,6 +165,8 @@ use the MCP tools `ask_codex` / `ask_antigravity` (they run on the user's own su
 - `cwd`: absolute path of the project folder.
 - `allow_edits`: false by default; set true only when the user asked for file changes.
 - `model` / `effort`: fill in only when the user specifies a model or effort level.
+- `session_id`: to follow up on an earlier call, pass the `session_id` printed at the end of
+  that answer (same `cwd`). Leave it out for a new task.
 
 It may take a few minutes. Summarise the result for the user and judge it yourself
 rather than accepting it as-is.
@@ -185,6 +188,24 @@ Before each call, the app shows an approval prompt. Check `allow_edits` in that 
 > [!NOTE]
 > "Always allow" approves the tool regardless of `allow_edits`. If you want to review every call that may edit files, choose "Allow once" instead.
 
+### Follow-up Questions
+
+You do not need to do anything special. Each answer ends with a line like this:
+
+```text
+[session_id: 0dbfbb6d-8909-493e-92a9-876ebae605cc]
+```
+
+When you follow up in the same chat, for example *"Ask Codex why it flagged line 42"*, the calling agent passes that `session_id` back and the callee continues where it left off: it still remembers the files it read and what it said. Without a `session_id`, every call is a clean start.
+
+| Callee | How it remembers | Survives an app restart? |
+|---|---|---|
+| Claude | Claude Code's own session (`--session-id`, then `--resume`) | Yes |
+| Codex | Codex's own session (`codex exec … resume <id>`) | Yes |
+| Antigravity | The bridge replays the earlier tasks and answers in the next prompt (most recent ~16,000 characters) | No. Start a new conversation instead. |
+
+Keep the same `cwd` when following up. Claude and Codex store sessions per project folder.
+
 ## Tool Reference
 
 Every tool (`ask_claude`, `ask_codex`, `ask_antigravity`) takes the same parameters:
@@ -196,6 +217,7 @@ Every tool (`ask_claude`, `ask_codex`, `ask_antigravity`) takes the same paramet
 | `allow_edits` | boolean | no (default `false`) | Let the callee modify files. |
 | `model` | string | no | Model to use. Omit to use the callee's default. See below. |
 | `effort` | string | no | Reasoning effort. Higher is more thorough but slower and uses more quota. See below. |
+| `session_id` | string | no | Continue an earlier conversation with this callee. Use the `session_id` from the end of a previous answer, with the same `cwd`. Omit to start fresh. |
 
 | Tool | `model` examples | `effort` values |
 |---|---|---|
@@ -203,9 +225,9 @@ Every tool (`ask_claude`, `ask_codex`, `ask_antigravity`) takes the same paramet
 | `ask_codex` | a model ID available on your ChatGPT plan, e.g. `gpt-6.1-sol` | `low` `medium` `high` `xhigh` `max` `ultra` (`ultra` on some models only) |
 | `ask_antigravity` | an ID from `agy models`, e.g. `gemini-3.8-flash-high` | `low` `medium` `high` `xhigh` `max` |
 
-Model names may contain only letters, digits, and `. _ : / [ ] -`. Anything else is rejected before the callee starts.
+Model names may contain only letters, digits, and `. _ : / [ ] -`, and session IDs only letters, digits, and `. _ : -`. Anything else is rejected before the callee starts.
 
-The tool returns the callee's final answer as text. If the callee fails, the result is marked as an error and includes the last part of its output.
+The tool returns the callee's final answer as text, followed by its `session_id`. If the callee fails, the result is marked as an error and includes the last part of its output.
 
 ## Configuration
 
@@ -286,14 +308,15 @@ Then delete the `agent-bridge` block from the three instruction files.
 
 ## Limitations
 
-- Each call starts a new conversation. Follow-up calls do not remember earlier ones.
+- Antigravity follow-ups are remembered by the bridge, not by Antigravity itself. They hold the earlier questions and answers but not the files Antigravity read, and they are lost when the calling app restarts.
+- If a Codex answer does not report its session ID (for example in an older Codex version), the bridge falls back to the same replay method as Antigravity.
 - There is no live progress while the callee works. Results arrive when it finishes.
 - Each call uses the callee's subscription quota.
 - Antigravity's MCP tool timeout has not been verified. Very long tasks may be cut off.
 
 ## Related Projects
 
-- [PAL MCP Server](https://github.com/BeehiveInnovations/pal-mcp-server): a full multi-model MCP server whose `clink` tool also bridges AI CLIs, with role presets and conversation continuity. Choose it if you want those features. Choose agent-bridge if you want a single dependency-free file that works only through your subscriptions.
+- [PAL MCP Server](https://github.com/BeehiveInnovations/pal-mcp-server): a full multi-model MCP server whose `clink` tool also bridges AI CLIs, with role presets and multi-model workflows. Choose it if you want those features. Choose agent-bridge if you want a single dependency-free file that works only through your subscriptions.
 
 ## Disclaimer
 
