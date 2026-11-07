@@ -79,6 +79,7 @@ function writeRules(file, others) {
 - \`cwd\`：專案資料夾的絕對路徑。
 - \`allow_edits\`：預設 false；只有使用者要求改檔才設 true。
 - \`model\` / \`effort\`：使用者指定模型或思考強度時才填，否則留空。
+- \`session_id\`：要接著先前那次呼叫追問時，填那次回答最後附的 \`session_id\`（\`cwd\` 要相同）。新任務就不要填。
 
 可能要跑幾分鐘，等它結束。把結果摘要給使用者，自己判斷對錯，不要照單全收。
 ${END}`;

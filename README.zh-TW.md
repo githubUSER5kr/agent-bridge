@@ -28,8 +28,9 @@ Claude Code ◀── 報告 ────── 交回檢查結果
 
 - **不需要 API key**：使用各家官方命令列程式，用你已經登入的帳號（Claude Pro/Max、ChatGPT Plus/Pro、Google）。
 - **APP 和終端機都能用**：Claude Code（終端機與桌面版）、Codex APP 與 CLI、Antigravity。
-- **零相依套件**：只有一個約 100 行的檔案，只需要 Node.js。
+- **零相依套件**：只有一個約 190 行的檔案，只需要 Node.js。
 - **預設唯讀**：呼叫方設定 `allow_edits: true` 時，對方才能改檔。
+- **可以追問**：每次回答最後都會附上 `session_id`。帶回去就能接著同一段對話問；不帶就是全新開始。
 - **防止無限呼叫**：被呼叫的一方會被要求不要再呼叫別人；被呼叫的 Claude 完全不載入任何 MCP。
 - **一行指令安裝**：`node install.mjs` 會偵測你裝了哪些工具，並設定好一切，可重複執行。
 
@@ -43,7 +44,7 @@ Claude Code ◀── 報告 ────── 交回檢查結果
 | Codex | `codex exec` | `ask_codex` |
 | Antigravity | `agy -p` | `ask_antigravity` |
 
-`agent-mcp.mjs` 把其中一個指令包成 MCP 工具。每個 agent 註冊**另外兩個**，所以任何一個都能把任務交給其他兩個。雙方只共享任務文字和專案資料夾，不共享對話紀錄。
+`agent-mcp.mjs` 把其中一個指令包成 MCP 工具。每個 agent 註冊**另外兩個**，所以任何一個都能把任務交給其他兩個。雙方只共享任務文字和專案資料夾。對方看不到呼叫方的對話，但記得自己和呼叫方先前的往來（見[追問](#追問)）。
 
 ## 系統需求
 
@@ -164,6 +165,7 @@ agy mcp add codex node /path/to/agent-bridge/agent-mcp.mjs codex
 - `cwd`：專案資料夾的絕對路徑。
 - `allow_edits`：預設 false；只有使用者要求改檔才設 true。
 - `model` / `effort`：使用者指定模型或思考強度時才填，否則留空。
+- `session_id`：要接著先前那次呼叫追問時，填那次回答最後附的 `session_id`（`cwd` 要相同）。新任務就不要填。
 
 可能要跑幾分鐘，等它結束。把結果摘要給使用者，自己判斷對錯，不要照單全收。
 ```
@@ -184,6 +186,26 @@ agy mcp add codex node /path/to/agent-bridge/agent-mcp.mjs codex
 > [!NOTE]
 > 「永久允許」不管 `allow_edits` 是什麼都會放行。如果你希望每次可能改檔前都確認，請選「只允許這一次」。
 
+### 追問
+
+你不需要做任何特別的事。每次回答最後都會有這樣一行：
+
+```text
+[session_id: 0dbfbb6d-8909-493e-92a9-876ebae605cc]
+```
+
+在同一個對話裡接著說，例如「問 Codex 為什麼第 42 行有問題」，呼叫方的 AI 會把這個 `session_id` 帶回去，對方就會接著上次繼續：它還記得讀過哪些檔案、說過什麼。不帶 `session_id` 的話，每次都是全新開始。
+
+| 被呼叫方 | 怎麼記住 | APP 重開後還在嗎？ |
+|---|---|---|
+| Claude | Claude Code 自己的 session（`--session-id`，之後 `--resume`） | 在 |
+| Codex | Codex 自己的 session（`codex exec … resume <id>`） | 在 |
+| Antigravity | Antigravity 自己的對話（`--output-format json` 回報 `conversation_id`，之後 `--conversation <id>`） | 在 |
+
+追問時 `cwd` 要和第一次相同，三家都是依專案資料夾存放對話的。
+
+如果對方找不到原本的對話、改在新對話裡回答，回覆裡會註明，並附上新的 `session_id`。
+
 ## 工具參數
 
 所有工具（`ask_claude`、`ask_codex`、`ask_antigravity`）的參數都一樣：
@@ -195,6 +217,7 @@ agy mcp add codex node /path/to/agent-bridge/agent-mcp.mjs codex
 | `allow_edits` | boolean | 否（預設 `false`） | 是否允許對方改檔。 |
 | `model` | string | 否 | 指定模型。不填就用對方的預設模型，可用的值見下表。 |
 | `effort` | string | 否 | 思考強度。越高越仔細，但越慢、越耗額度，可用的值見下表。 |
+| `session_id` | string | 否 | 接續先前和這個 agent 的對話。填上次回答最後附的 `session_id`，`cwd` 要相同。不填就開新對話。 |
 
 | 工具 | `model` 範例 | `effort` 可用值 |
 |---|---|---|
@@ -202,9 +225,9 @@ agy mcp add codex node /path/to/agent-bridge/agent-mcp.mjs codex
 | `ask_codex` | 你的 ChatGPT 方案可用的模型 ID，例如 `gpt-6.1-sol` | `low` `medium` `high` `xhigh` `max` `ultra`（`ultra` 僅部分模型支援） |
 | `ask_antigravity` | `agy models` 列出的 ID，例如 `gemini-3.8-flash-high` | `low` `medium` `high` `xhigh` `max` |
 
-模型名稱只能包含英數字和 `. _ : / [ ] -`，其他字元會在啟動對方之前就被拒絕。
+模型名稱只能包含英數字和 `. _ : / [ ] -`，session_id 只能包含英數字和 `. _ : -` 且不能以 `-` 開頭，其他字元會在啟動對方之前就被拒絕。
 
-工具會回傳對方的最終回答。如果對方執行失敗，結果會標記為錯誤，並附上對方最後的輸出。
+工具會回傳對方的最終回答，最後附上 `session_id`。如果對方執行失敗，結果會標記為錯誤，並附上對方最後的輸出。
 
 ## 設定
 
@@ -239,6 +262,13 @@ agy mcp add codex node /path/to/agent-bridge/agent-mcp.mjs codex
 <summary>呼叫時出現「請確認 … 已安裝並登入」</summary>
 
 被呼叫那一方的登入過期了。在終端機執行 `claude`、`codex` 或 `agy`，重新登入即可。
+
+</details>
+
+<details>
+<summary>Antigravity 出現不認得 <code>--output-format</code> 的錯誤</summary>
+
+你的 `agy` 版本比 bridge 用到的 JSON 輸出功能還舊，請把 Antigravity 更新到最新版。
 
 </details>
 
@@ -287,14 +317,14 @@ agy mcp remove claude && agy mcp remove codex
 
 ## 限制
 
-- 每次呼叫都是新對話，不記得上一次的內容。
+- 如果對方沒有回報 session ID（例如較舊版的 Codex 或 Antigravity），bridge 會自己記住先前的問答，下次附進 prompt（保留最近約 16,000 字元）。這樣記得大意，但不記得對方讀過的檔案，而且呼叫方的 APP 重開後就會遺失。
 - 對方工作時看不到即時進度，做完才會有結果。
 - 每次呼叫都會用到被呼叫那一家的訂閱額度。
 - Antigravity 的 MCP 逾時上限未確認，任務很久時可能被中斷。
 
 ## 相關專案
 
-- [PAL MCP Server](https://github.com/BeehiveInnovations/pal-mcp-server)：功能完整的多模型 MCP 伺服器，它的 `clink` 工具也能串接各家 AI 命令列程式，並支援角色預設與對話延續。需要這些功能可以選它；想要單一檔案、零相依、只走訂閱帳號，可以選 agent-bridge。
+- [PAL MCP Server](https://github.com/BeehiveInnovations/pal-mcp-server)：功能完整的多模型 MCP 伺服器，它的 `clink` 工具也能串接各家 AI 命令列程式，並支援角色預設與多模型工作流程。需要這些功能可以選它；想要單一檔案、零相依、只走訂閱帳號，可以選 agent-bridge。
 
 ## 免責聲明
 
